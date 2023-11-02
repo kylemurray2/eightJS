@@ -92,8 +92,6 @@ export default class EightSleep {
       }
     } catch (err) {
       if (err.response) {
-          // The request was made and the server responded with a status code
-          // outside of the range of 2xx
           console.error(err.response.data);
           console.error(err.response.status);
           console.error(err.response.headers);
@@ -194,14 +192,8 @@ export default class EightSleep {
 
 async atExit() {
   try {
-      // In the context of JavaScript's event-driven model, there's no direct
-      // equivalent to getting a running loop. Instead, we can just attempt
-      // to run the asynchronous function.
       await this.stop();
   } catch (error) {
-      // If there's a runtime error or any other error, you might handle it here.
-      // However, JavaScript doesn't have a direct counterpart to Python's RuntimeError
-      // in this context, so we just attempt to run the stop() method again.
       await this.stop();
   }
 }
