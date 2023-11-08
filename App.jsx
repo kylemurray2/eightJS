@@ -1,82 +1,99 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, Button, StyleSheet,TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet,TouchableOpacity } from 'react-native';
 import EightSleep from './src/EightSleep';
-import 'dotenv/config';
+import ReactNativeForegroundService from '@supersami/rn-foreground-service';
 
-// 
 const email = process.env.EIGHTSLEEP_EMAIL;
 const pword = process.env.EIGHTSLEEP_PWORD;
 const c_id = process.env.EIGHTSLEEP_C_ID;
 const c_secret = process.env.EIGHTSLEEP_C_SECRET;
 const userId = process.env.EIGHTSLEEP_USER_ID;
 
-
-const App = () => {
-  const [level, setLevel] = useState(1);
-  const [coolingTime, setCoolingTime] = useState(30);
+export default function App() {
+  
+  const [instance, setInstance] = useState(null);
+  const [coolingTime, setCoolingTime] = useState(40);
   const [standby, setStandby] = useState(30);
-
+  const [level, setLevel] = useState(1);
   const [outputMessage, setOutputMessage] = useState('');
+  const [firstLoop, setFirstLoop] = useState(true);
 
-  const [message, setMessage] = useState('');
-  const [sleep, setSleep] = useState(null);
-  const [running, setRunning] = useState(true);
-
-  const runningRef = useRef(true);
-
-  const handleStart = async () => {
-    setOutputMessage('Starting EightSleep');
-    runningRef.current = true;
-
-    try {
-     
-        const instance = new EightSleep(email, pword, c_id, c_secret);
-        setSleep(instance);
-        await instance.start();
-      
-        // Do the initial cooling
-        setOutputMessage('Running initial cooling');
-        console.log('Initial cooling to ' + level);
-        await instance.setHeatingLevel(level, userId);
-        console.log('waiting ' + coolingTime + ' minutes.');
-        await new Promise(resolve => setTimeout(resolve, coolingTime * 1000*60));
-        console.log('Done with initial cooling');
-        await instance.turnOffSide(userId);
-        setOutputMessage('Running cycle cooling');
-
-      //   await instance.setHeatingLevel(1, userId); 
-        while (runningRef.current) {
-          console.log('Cycle cooling to ' + level);
-          await instance.setHeatingLevel(level, userId);
-          console.log('waiting ' + Math.round(2) + ' minutes.');
-          await new Promise(resolve => setTimeout(resolve, 2 * 1000*60));
-          console.log('turning off');
-          await instance.turnOffSide(userId);
-          console.log('waiting ' + Math.round(standby) + ' minutes.');
-          await new Promise(resolve => setTimeout(resolve, standby * 1000*60));
-           // Check if running is still true, otherwise break out of the loop
-           console.log(runningRef.current)
-           if (!runningRef.current) {
-             console.log('Exiting because running is false')
-             break;
-           }
+  useEffect(() => {
+    let isMounted = true; // Track the mounted status
+  
+    async function initializeEightSleep() {
+      if (isMounted) {
+        const tempInstance = new EightSleep(email, pword, c_id, c_secret);
+        setInstance(tempInstance);
+        await tempInstance.start();
       }
-    
-    } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        setMessage(`Error: ${errorMessage}`);
+    }
+  
+    initializeEightSleep();
+  
+    return () => {
+      isMounted = false; // Clean up the mounted status on unmount
+    };
+  }, []);
+
+  useEffect(() => {
+    // Make sure to remove the existing task before setting up a new one
+    ReactNativeForegroundService.remove_task('heatingTask');
+    // Now define the task with the latest value of standby
+    ReactNativeForegroundService.add_task(() => manageHeating(instance, standby,level), {
+      delay: standby * 60000,
+      onLoop: true,
+      taskId: 'heatingTask',
+      onError: (e) => console.error('Error managing heating:', e),
+    });
+    // Clean up by removing the task when the component unmounts or before re-adding it
+    return () => ReactNativeForegroundService.remove_task('heatingTask');
+  }, [standby, instance,level]); // Add standby and instance to the dependency array
+
+
+  const manageHeating = async (eightSleepInstance,standby,level) => {
+    try {
+      setOutputMessage('Running cycle cooling');
+      // Set heating level
+      await eightSleepInstance.setHeatingLevel(level, userId);
+      // Determine the timeout duration based on whether it's the first loop or not
+      const coolDuration = firstLoop ? coolingTime * 60000 : 2 * 60000; // 10 minutes for the first loop, 2 minutes for subsequent loops
+      console.log(`waiting ${firstLoop ? `${coolingTime} minutes` : '1 minutes'}`);
+      // The following will execute the code after the 2 mins has past
+      setTimeout(async () => {
+        await eightSleepInstance.turnOffSide(userId);
+        setOutputMessage(`Standing by for ${standby} minutes`);
+        // After the first loop is completed, set firstLoop to false
+        setFirstLoop(false);
+      }, coolDuration);      
+
+    } catch (error) {
+      console.error('Error in manageHeating:', error);
     }
   };
 
-  const handleStop = async () => {
-    setOutputMessage('Stopping EightSleep');
-    runningRef.current = false; // Update the runningRef value to false here
-    await sleep.turnOffSide(userId);
-    await sleep.stop();
-    setSleep(null);
-    setOutputMessage('Good morning');
+  // Start the foreground service
+  const startService = () => {
+    setFirstLoop(true);
+    ReactNativeForegroundService.start({
+      id: 1244,
+      title: 'Sleep Eight',
+      message: 'Cycle cooling active',
+      icon: "ic_foreground",
+      button: true,
+      buttonText: "Open",
+    });
+  };
 
-};
+  // Stop the foreground service and heating tasks
+  const stopService = async () => {
+    setOutputMessage('Stopping EightSleep');
+    ReactNativeForegroundService.stopAll();
+    await instance.turnOffSide(userId);
+    await instance.stop();
+    setInstance(null);
+    setOutputMessage('Good Morning');
+  };
 
   const styles = StyleSheet.create({
     container: {
@@ -171,7 +188,7 @@ const App = () => {
       
       <Text style={styles.label}>Level</Text> 
       <View style={styles.buttonRow}>      
-        <StyledButton title="-" onPress={() => setLevel(Math.max(0, level - 1))} />
+        <StyledButton title="-" onPress={() => setLevel(level - 1)} />
         <Text style={styles.value}>{level}</Text>
         <StyledButton title="+" onPress={() => setLevel(level + 1)} />
       </View>
@@ -190,13 +207,10 @@ const App = () => {
         <StyledButton title="+" onPress={() => setStandby(standby + 5)} />
       </View>
 
-      <StyledButtonStart title="Start" onPress={handleStart} />
-      <StyledButtonStop title="Stop" onPress={handleStop} />
+      <StyledButtonStart title="Start" onPress={startService} />
+      <StyledButtonStop title="Stop" onPress={stopService} />
       <Text style={styles.outputMessage}>{outputMessage}</Text>
       
     </View>
   );
-
-};
-
-export default App;
+  };
