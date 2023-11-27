@@ -92,6 +92,8 @@ export default class EightSleep {
       }
     } catch (err) {
       if (err.response) {
+          // The request was made and the server responded with a status code
+          // outside of the range of 2xx
           console.error(err.response.data);
           console.error(err.response.status);
           console.error(err.response.headers);
@@ -188,7 +190,47 @@ export default class EightSleep {
     const data = { currentState: { type: 'off' } };
     await this.apiRequest("PUT", url, data);
 
-}
+  }
+
+  async getUserData(userId) {
+    try {
+      //const url = `${CLIENT_API_URL}/v1/devices/${userId}`;
+      const deviceId = ''; // The device ID from your GET request path
+      const url = `https://client-api.8slp.net/v1/devices/${deviceId}`;
+      const accessToken = this.token.access_token;
+      const response = await fetch(url, {
+        method: 'GET', // or 'POST', 'PUT', 'DELETE', etc.
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      //console.log(data); // Log the data to the console
+
+      const leftHeatingDuration = data.result.leftHeatingDuration;
+      const leftHeatingLevel = data.result.leftHeatingLevel;
+      const leftKelvin = data.result.leftKelvin;
+      const leftNowHeating = data.result.leftNowHeating;
+      const leftSchedule = data.result.leftSchedule;
+      const leftTargetHeatingLevel = data.result.leftTargetHeatingLevel;
+
+      //console.log(leftKelvin);
+      //console.log(leftHeatingDuration)
+      //console.log(leftHeatingLevel)
+
+      return leftHeatingLevel; // This is the body of the response
+    } catch (error) {
+      console.error('Error fetching data: ', error);
+      // Handle errors as needed
+    }
+  }
+
 
 async atExit() {
   try {
